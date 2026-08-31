@@ -6,85 +6,64 @@ from app.core.database import get_supabase
 
 router = APIRouter(prefix="/certificados", tags=["Certificados"])
 
-_mock_certificados_db = [
-    {
-        "id": "cert-001",
-        "usuario_id": "a1010000-0000-0000-0000-000000000001",
-        "actividad_id": "act-001",
-        "donacion_id": None,
-        "tipo": "voluntariado",
-        "titulo": "Certificado de Voluntariado",
-        "actividad_titulo": "Reforestación Río Bosque",
-        "horas": 14,
-        "monto": None,
-        "fecha_emision": date(2026, 8, 15),
-        "estado": "aprobado",
-        "codigo_verificacion": "FB-VOL-2026-0892",
-        "firmado_por": "Dra. Elena Ramos - Directora Ejecutiva",
-        "destinatario": "Luis Fernando Pérez Gómez",
-        "documento_identidad": "1.098.765.432",
-    },
-    {
-        "id": "cert-002",
-        "usuario_id": "a1010000-0000-0000-0000-000000000001",
-        "actividad_id": None,
-        "donacion_id": "don-001",
-        "tipo": "donacion",
-        "titulo": "Certificado de Donación",
-        "actividad_titulo": "Aporte Proyecto Cuencas Vivas",
-        "horas": None,
-        "monto": 70000.0,
-        "fecha_emision": date(2026, 7, 28),
-        "estado": "aprobado",
-        "codigo_verificacion": "FB-DON-2026-0411",
-        "firmado_por": "Carlos Mendoza - Tesorería Fundación",
-        "destinatario": "Luis Fernando Pérez Gómez",
-        "documento_identidad": "1.098.765.432",
-    },
-    {
-        "id": "cert-003",
-        "usuario_id": "a1010000-0000-0000-0000-000000000001",
-        "actividad_id": "act-003",
-        "donacion_id": None,
-        "tipo": "voluntariado",
-        "titulo": "Certificado de Voluntariado",
-        "actividad_titulo": "Censo de Aves y Reforestación",
-        "horas": 6,
-        "monto": None,
-        "fecha_emision": date(2026, 8, 28),
-        "estado": "en_proceso",
-        "codigo_verificacion": "FB-VOL-2026-PEND",
-        "firmado_por": "En revisión por coordinación",
-        "destinatario": "Luis Fernando Pérez Gómez",
-        "documento_identidad": "1.098.765.432",
-    },
-]
+def map_certificado(row: dict) -> CertificadoResponse:
+    c_id = str(row.get("idcertificados") or row.get("id") or "")
+    user_id = str(row.get("usuarios_idusuarios") or row.get("usuario_id") or "1")
+    act_id = str(row.get("actividades_idactividades") or row.get("actividad_id") or "")
+    nombre_voluntario = row.get("nombrevoluntario") or row.get("destinatario") or "Voluntario Biosferas"
+    actividad_titulo = row.get("actividadasociada") or row.get("actividad_titulo") or "Actividad Ambiental"
+    codigo = row.get("codigo_verificacion") or f"FB-VOL-2026-00{c_id}"
+    tipo = row.get("tipo") or "voluntariado"
+    titulo = row.get("titulo") or f"Certificado de {tipo.capitalize()}"
+    horas = row.get("horas") or 14
+    monto = float(row.get("monto") or 0.0) if row.get("monto") else None
+    firmado_por = row.get("firmado_por") or "Dra. Elena Ramos - Directora Ejecutiva"
+    documento = str(row.get("documento_identidad") or "1.098.765.432")
+
+    return CertificadoResponse(
+        id=c_id,
+        usuario_id=user_id,
+        actividad_id=act_id,
+        donacion_id=None,
+        tipo=tipo,
+        titulo=titulo,
+        actividad_titulo=actividad_titulo,
+        horas=horas,
+        monto=monto,
+        fecha_emision=date(2026, 8, 15),
+        estado="aprobado",
+        codigo_verificacion=codigo,
+        firmado_por=firmado_por,
+        destinatario=nombre_voluntario,
+        documento_identidad=documento,
+    )
 
 @router.get("/usuario/{usuario_id}", response_model=List[CertificadoResponse])
 async def get_certificates_by_user(usuario_id: str):
     supabase = get_supabase()
     if supabase:
         try:
-            res = supabase.table("certificados").select("*").eq("usuario_id", usuario_id).execute()
+            if usuario_id.isdigit():
+                res = supabase.table("certificados").select("*").eq("usuarios_idusuarios", int(usuario_id)).execute()
+            else:
+                res = supabase.table("certificados").select("*").execute()
             if res.data and len(res.data) > 0:
-                return [CertificadoResponse(**c) for c in res.data]
+                return [map_certificado(c) for c in res.data]
         except Exception as e:
-            print(f"[Certificados Router] Supabase fallback: {e}")
+            print(f"[Certificados Router] Supabase get error: {e}")
 
-    return [CertificadoResponse(**c) for c in _mock_certificados_db]
+    return []
 
 @router.get("/{cert_id}", response_model=CertificadoResponse)
 async def get_certificate_by_id(cert_id: str):
     supabase = get_supabase()
     if supabase:
         try:
-            res = supabase.table("certificados").select("*").eq("id", cert_id).execute()
-            if res.data and len(res.data) > 0:
-                return CertificadoResponse(**res.data[0])
+            if cert_id.isdigit():
+                res = supabase.table("certificados").select("*").eq("idcertificados", int(cert_id)).execute()
+                if res.data and len(res.data) > 0:
+                    return map_certificado(res.data[0])
         except Exception as e:
-            print(f"[Certificados Router] Supabase fallback: {e}")
+            print(f"[Certificados Get] Supabase error: {e}")
 
-    cert = next((c for c in _mock_certificados_db if c["id"] == cert_id), None)
-    if not cert:
-        raise HTTPException(status_code=404, detail="Certificado no encontrado")
-    return CertificadoResponse(**cert)
+    raise HTTPException(status_code=404, detail="Certificado no encontrado")
