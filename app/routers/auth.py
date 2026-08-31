@@ -22,7 +22,34 @@ def check_password_flexible(plain: str, stored_hash: str) -> bool:
     except Exception:
         return False
 
-def map_persona_to_user(row: dict) -> UserResponse:
+def get_user_stats(user_id: str, supabase) -> tuple:
+    horas = 0
+    certs = 0
+    donations = 0.0
+
+    if supabase:
+        try:
+            # Calcular donaciones reales del usuario
+            if user_id.isdigit():
+                res_don = supabase.table("donaciones").select("monto").eq("usuarios_idusuarios", int(user_id)).execute()
+                if res_don.data:
+                    donations = sum(float(d.get("monto") or 0) for d in res_don.data)
+
+                # Calcular certificados reales del usuario
+                res_cert = supabase.table("certificados").select("idcertificados").eq("usuarios_idusuarios", int(user_id)).execute()
+                if res_cert.data:
+                    certs = len(res_cert.data)
+
+                # Calcular horas reales de asistencias
+                res_asist = supabase.table("asistencias").select("id").eq("usuario_id", user_id).execute()
+                if res_asist.data:
+                    horas = len(res_asist.data) * 4
+        except Exception as e:
+            print(f"[Auth Stats Lookup] Error: {e}")
+
+    return (horas, certs, donations)
+
+def map_persona_to_user(row: dict, supabase=None) -> UserResponse:
     user_id = str(row.get("idusuarios") or row.get("id") or "")
     full_name = row.get("nombrecompleto") or "Voluntario"
     parts = full_name.split(" ")
@@ -32,6 +59,8 @@ def map_persona_to_user(row: dict) -> UserResponse:
     telefono = str(row.get("telefono") or "")
     fecha_nacimiento = str(row.get("fecharegisto") or "2001-05-02")
     foto_url = row.get("foto_url")
+
+    horas, certs, donaciones = get_user_stats(user_id, supabase)
 
     return UserResponse(
         id=user_id,
@@ -43,9 +72,9 @@ def map_persona_to_user(row: dict) -> UserResponse:
         rol="voluntario",
         foto_url=foto_url,
         meta_anual_horas=20,
-        horas_acumuladas=14,
-        total_certificados=3,
-        total_donaciones=120000.0,
+        horas_acumuladas=horas,
+        total_certificados=certs,
+        total_donaciones=donaciones,
     )
 
 @router.post("/login", response_model=TokenResponse)
@@ -59,7 +88,7 @@ async def login(credentials: UserLogin):
                 user_data = res.data[0]
                 stored_pass = user_data.get("contrasena") or ""
                 if check_password_flexible(credentials.password, stored_pass):
-                    user_resp = map_persona_to_user(user_data)
+                    user_resp = map_persona_to_user(user_data, supabase)
                     token = create_access_token(user_resp.id)
                     return TokenResponse(
                         access_token=token,
@@ -73,7 +102,7 @@ async def login(credentials: UserLogin):
         except Exception as e:
             print(f"[Auth Login] Supabase error: {e}")
 
-    # Si no existe en personas o para credenciales demo:
+    # Cuenta demo limpia por si no hay conexión
     if credentials.email in ["luis@correo.com", "admin@fundapp.org"]:
         user_resp = UserResponse(
             id="1",
@@ -84,9 +113,9 @@ async def login(credentials: UserLogin):
             telefono="+57 312 456 7890",
             rol="voluntario",
             meta_anual_horas=20,
-            horas_acumuladas=14,
-            total_certificados=3,
-            total_donaciones=120000.0,
+            horas_acumuladas=0,
+            total_certificados=0,
+            total_donaciones=0.0,
         )
         token = create_access_token(user_resp.id)
         return TokenResponse(access_token=token, token_type="bearer", user=user_resp)
@@ -112,7 +141,7 @@ async def register(data: UserRegister):
             }
             res = supabase.table("personas").insert(new_persona).execute()
             if res.data and len(res.data) > 0:
-                user_resp = map_persona_to_user(res.data[0])
+                user_resp = map_persona_to_user(res.data[0], supabase)
                 token = create_access_token(user_resp.id)
                 return TokenResponse(access_token=token, token_type="bearer", user=user_resp)
         except Exception as e:
@@ -145,7 +174,7 @@ async def get_me():
         telefono="+57 312 456 7890",
         rol="voluntario",
         meta_anual_horas=20,
-        horas_acumuladas=14,
-        total_certificados=3,
-        total_donaciones=120000.0,
+        horas_acumuladas=0,
+        total_certificados=0,
+        total_donaciones=0.0,
     )
