@@ -1,7 +1,8 @@
 from datetime import date
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, HTTPException
 from app.schemas.certificado import CertificadoResponse
+from app.core.database import get_supabase
 
 router = APIRouter(prefix="/certificados", tags=["Certificados"])
 
@@ -61,10 +62,28 @@ _mock_certificados_db = [
 
 @router.get("/usuario/{usuario_id}", response_model=List[CertificadoResponse])
 async def get_certificates_by_user(usuario_id: str):
+    supabase = get_supabase()
+    if supabase:
+        try:
+            res = supabase.table("certificados").select("*").eq("usuario_id", usuario_id).execute()
+            if res.data and len(res.data) > 0:
+                return [CertificadoResponse(**c) for c in res.data]
+        except Exception as e:
+            print(f"[Certificados Router] Supabase fallback: {e}")
+
     return [CertificadoResponse(**c) for c in _mock_certificados_db]
 
 @router.get("/{cert_id}", response_model=CertificadoResponse)
 async def get_certificate_by_id(cert_id: str):
+    supabase = get_supabase()
+    if supabase:
+        try:
+            res = supabase.table("certificados").select("*").eq("id", cert_id).execute()
+            if res.data and len(res.data) > 0:
+                return CertificadoResponse(**res.data[0])
+        except Exception as e:
+            print(f"[Certificados Router] Supabase fallback: {e}")
+
     cert = next((c for c in _mock_certificados_db if c["id"] == cert_id), None)
     if not cert:
         raise HTTPException(status_code=404, detail="Certificado no encontrado")
