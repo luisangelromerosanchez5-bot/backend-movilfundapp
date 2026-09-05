@@ -29,18 +29,15 @@ def get_user_stats(user_id: str, supabase) -> tuple:
 
     if supabase:
         try:
-            # Calcular donaciones reales del usuario
             if user_id.isdigit():
                 res_don = supabase.table("donaciones").select("monto").eq("usuarios_idusuarios", int(user_id)).execute()
                 if res_don.data:
                     donations = sum(float(d.get("monto") or 0) for d in res_don.data)
 
-                # Calcular certificados reales del usuario
                 res_cert = supabase.table("certificados").select("idcertificados").eq("usuarios_idusuarios", int(user_id)).execute()
                 if res_cert.data:
                     certs = len(res_cert.data)
 
-                # Calcular horas reales de asistencias
                 res_asist = supabase.table("asistencias").select("id").eq("usuario_id", user_id).execute()
                 if res_asist.data:
                     horas = len(res_asist.data) * 4
@@ -59,6 +56,11 @@ def map_persona_to_user(row: dict, supabase=None) -> UserResponse:
     telefono = str(row.get("telefono") or "")
     fecha_nacimiento = str(row.get("fecharegisto") or "2001-05-02")
     foto_url = row.get("foto_url")
+    
+    # Detección de Rol
+    rol = str(row.get("rol") or "").lower()
+    if not rol:
+        rol = "admin" if correo.lower().startswith("admin@") else "voluntario"
 
     horas, certs, donaciones = get_user_stats(user_id, supabase)
 
@@ -69,7 +71,7 @@ def map_persona_to_user(row: dict, supabase=None) -> UserResponse:
         correo=correo,
         fecha_nacimiento=fecha_nacimiento,
         telefono=telefono,
-        rol="voluntario",
+        rol=rol,
         foto_url=foto_url,
         meta_anual_horas=20,
         horas_acumuladas=horas,
@@ -79,17 +81,18 @@ def map_persona_to_user(row: dict, supabase=None) -> UserResponse:
 
 @router.post("/login", response_model=TokenResponse)
 async def login(credentials: UserLogin):
+    email_clean = credentials.email.strip().lower()
     supabase = get_supabase()
+    
     if supabase:
         try:
-            # Buscar en tabla 'personas'
-            res = supabase.table("personas").select("*").eq("correo", credentials.email.strip()).execute()
+            res = supabase.table("personas").select("*").eq("correo", email_clean).execute()
             if res.data and len(res.data) > 0:
                 user_data = res.data[0]
                 stored_pass = user_data.get("contrasena") or ""
                 if check_password_flexible(credentials.password, stored_pass):
                     user_resp = map_persona_to_user(user_data, supabase)
-                    token = create_access_token(user_resp.id)
+                    token = create_access_token(user_resp.id, rol=user_resp.rol)
                     return TokenResponse(
                         access_token=token,
                         token_type="bearer",
@@ -102,13 +105,30 @@ async def login(credentials: UserLogin):
         except Exception as e:
             print(f"[Auth Login] Supabase error: {e}")
 
-    # Cuenta demo limpia por si no hay conexión
-    if credentials.email in ["luis@correo.com", "admin@fundapp.org"]:
+    # Cuentas demo y admin
+    if email_clean in ["admin@fundapp.com", "admin@fundapp.org", "admin@biosferas.org"]:
+        user_resp = UserResponse(
+            id="admin-001",
+            nombres="Administrador",
+            apellidos="Fundación Biosferas",
+            correo=email_clean,
+            fecha_nacimiento="1990-01-01",
+            telefono="+57 300 123 4567",
+            rol="admin",
+            meta_anual_horas=20,
+            horas_acumuladas=0,
+            total_certificados=0,
+            total_donaciones=0.0,
+        )
+        token = create_access_token(user_resp.id, rol="admin")
+        return TokenResponse(access_token=token, token_type="bearer", user=user_resp)
+
+    if email_clean in ["luis@correo.com", "voluntario@fundapp.org"]:
         user_resp = UserResponse(
             id="1",
             nombres="Luis Fernando",
             apellidos="Pérez Gómez",
-            correo=credentials.email,
+            correo=email_clean,
             fecha_nacimiento="2001-05-02",
             telefono="+57 312 456 7890",
             rol="voluntario",
@@ -117,7 +137,7 @@ async def login(credentials: UserLogin):
             total_certificados=0,
             total_donaciones=0.0,
         )
-        token = create_access_token(user_resp.id)
+        token = create_access_token(user_resp.id, rol="voluntario")
         return TokenResponse(access_token=token, token_type="bearer", user=user_resp)
 
     raise HTTPException(status_code=401, detail="Usuario no encontrado o credenciales incorrectas")
@@ -131,7 +151,7 @@ async def register(data: UserRegister):
         try:
             new_persona = {
                 "nombrecompleto": f"{data.nombres} {data.apellidos}".strip(),
-                "correo": data.correo.strip(),
+                "correo": data.correo.strip().lower(),
                 "contrasena": sha256_pass,
                 "tipodocumento": "CC",
                 "numerodocumento": int(str(uuid.uuid4().int)[:6]),
@@ -142,7 +162,7 @@ async def register(data: UserRegister):
             res = supabase.table("personas").insert(new_persona).execute()
             if res.data and len(res.data) > 0:
                 user_resp = map_persona_to_user(res.data[0], supabase)
-                token = create_access_token(user_resp.id)
+                token = create_access_token(user_resp.id, rol=user_resp.rol)
                 return TokenResponse(access_token=token, token_type="bearer", user=user_resp)
         except Exception as e:
             print(f"[Auth Register] Supabase error: {e}")
@@ -160,7 +180,7 @@ async def register(data: UserRegister):
         total_certificados=0,
         total_donaciones=0.0,
     )
-    token = create_access_token(user_resp.id)
+    token = create_access_token(user_resp.id, rol="voluntario")
     return TokenResponse(access_token=token, token_type="bearer", user=user_resp)
 
 @router.get("/me", response_model=UserResponse)

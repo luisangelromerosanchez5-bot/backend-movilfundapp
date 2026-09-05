@@ -16,6 +16,7 @@ class CheckOutRequest(BaseModel):
     pasos_sesion: int
     distancia_km: float
     calorias: int = 0
+    foto_evidencia_url: Optional[str] = None
 
 class AsistenciaResponse(BaseModel):
     id: str
@@ -31,3 +32,4 @@ class AsistenciaResponse(BaseModel):
     pasos_sesion: int = 0
     distancia_km: float = 0.0
     calorias: int = 0
+    foto_evidencia_url: Optional[str] = None
