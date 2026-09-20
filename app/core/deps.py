@@ -3,13 +3,18 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.security import decode_token
 
-security = HTTPBearer(auto_error=False)
+# Esquema de autenticación Bearer para OpenAPI / Swagger
+security = HTTPBearer(auto_error=True, scheme_name="BearerAuth", description="Introduce el token JWT obtenido en /auth/login (formato: Bearer <token>)")
 
 async def get_current_user_token(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-) -> Optional[dict]:
-    if not credentials:
-        return None
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
+    if not credentials or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Autenticación requerida. Por favor incluye el Bearer Token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     token = credentials.credentials
     payload = decode_token(token)
     if not payload:
@@ -21,14 +26,8 @@ async def get_current_user_token(
     return payload
 
 async def require_auth(
-    user_payload: Optional[dict] = Depends(get_current_user_token),
+    user_payload: dict = Depends(get_current_user_token),
 ) -> dict:
-    if not user_payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Autenticación requerida. Por favor incluye el Bearer Token.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
     return user_payload
 
 def require_role(allowed_roles: list[str]):

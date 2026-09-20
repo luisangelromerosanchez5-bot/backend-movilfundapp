@@ -1,7 +1,9 @@
+import uuid
 from typing import List, Optional
-from fastapi import APIRouter, Query
-from app.schemas.actividad import ActividadResponse
+from fastapi import APIRouter, Query, Depends, HTTPException, status
+from app.schemas.actividad import ActividadResponse, ActividadCreate
 from app.core.database import get_supabase
+from app.core.deps import require_role
 
 router = APIRouter(prefix="/actividades", tags=["Actividades Ambientales"])
 
@@ -22,7 +24,7 @@ def map_supabase_actividad(row: dict) -> ActividadResponse:
     radio = int(row.get("radio_permitido_metros") or 100)
     puntos = int(row.get("puntos_impacto") or 100)
     tags = row.get("tags") or ["Voluntariado", "Comunidad"]
-    imagen_url = row.get("imagen_url") or "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"
+    imagen_url = row.get("imagen_url") or "assets/images/act_reforestacion_rio.jpg"
 
     return ActividadResponse(
         id=act_id,
@@ -71,7 +73,6 @@ async def get_activity(activity_id: str):
     supabase = get_supabase()
     if supabase:
         try:
-            # Buscar por idactividades
             try:
                 int_id = int(activity_id)
                 res = supabase.table("actividades").select("*").eq("idactividades", int_id).execute()
@@ -83,3 +84,49 @@ async def get_activity(activity_id: str):
             print(f"[Actividades Get] Error: {e}")
 
     return map_supabase_actividad({"idactividades": activity_id, "nombreactividad": "Actividad"})
+
+@router.post("", response_model=ActividadResponse, dependencies=[Depends(require_role(["admin", "administrador"]))])
+async def create_activity(activity_data: ActividadCreate):
+    """Crea una nueva actividad con imagen oficial por defecto (Solo Administrador)"""
+    default_img = activity_data.imagen_url or "assets/images/act_reforestacion_rio.jpg"
+    new_id = str(uuid.uuid4().int)[:6]
+    
+    supabase = get_supabase()
+    if supabase:
+        try:
+            record = {
+                "nombreactividad": activity_data.titulo,
+                "descripcion": activity_data.descripcion,
+                "categoria": activity_data.categoria,
+                "fechainicio": activity_data.fecha,
+                "cupos_totales": activity_data.cupos_totales,
+                "ubicacion_nombre": activity_data.ubicacion_nombre,
+                "latitud": activity_data.latitud,
+                "longitud": activity_data.longitud,
+                "imagen_url": default_img,
+            }
+            res = supabase.table("actividades").insert(record).execute()
+            if res.data and len(res.data) > 0:
+                return map_supabase_actividad(res.data[0])
+        except Exception as e:
+            print(f"[Actividades Create] Supabase error: {e}")
+
+    return ActividadResponse(
+        id=new_id,
+        titulo=activity_data.titulo,
+        descripcion=activity_data.descripcion,
+        categoria=activity_data.categoria,
+        fecha=activity_data.fecha,
+        hora=activity_data.hora,
+        duracion_horas=activity_data.duracion_horas,
+        cupos_totales=activity_data.cupos_totales,
+        cupos_ocupados=0,
+        estado_cupos="disponible",
+        ubicacion_nombre=activity_data.ubicacion_nombre,
+        latitud=activity_data.latitud,
+        longitud=activity_data.longitud,
+        radio_permitido_metros=activity_data.radio_permitido_metros,
+        puntos_impacto=activity_data.puntos_impacto,
+        tags=activity_data.tags or [activity_data.categoria],
+        imagen_url=default_img,
+    )

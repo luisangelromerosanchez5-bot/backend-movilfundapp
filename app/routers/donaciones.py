@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime
-from typing import List
-from fastapi import APIRouter
+from typing import List, Optional
+from fastapi import APIRouter, Depends, Query
 from app.schemas.donacion import DonacionCreate, DonacionResponse
 from app.core.database import get_supabase
+from app.core.deps import require_auth
 
 router = APIRouter(prefix="/donaciones", tags=["Donaciones"])
 
@@ -33,8 +34,44 @@ def map_donacion(row: dict) -> DonacionResponse:
         fecha=fecha,
     )
 
+@router.get("", response_model=List[DonacionResponse])
+async def list_donaciones(
+    usuario_id: Optional[str] = Query(None),
+    current_user: dict = Depends(require_auth),
+):
+    user_role = str(current_user.get("rol", "voluntario")).lower()
+    user_sub = str(current_user.get("sub", ""))
+
+    if user_role in ["admin", "administrador"]:
+        target_user = usuario_id
+    else:
+        target_user = user_sub
+
+    supabase = get_supabase()
+    if supabase:
+        try:
+            query = supabase.table("donaciones").select("*")
+            if target_user:
+                if target_user.isdigit():
+                    query = query.eq("usuarios_idusuarios", int(target_user))
+                else:
+                    query = query.eq("usuarios_idusuarios", target_user)
+            res = query.order("fechadonacion", desc=True).execute()
+            if res.data:
+                return [map_donacion(d) for d in res.data]
+        except Exception as e:
+            print(f"[Donaciones List] Error: {e}")
+    return []
+
 @router.post("", response_model=DonacionResponse)
-async def create_donacion(data: DonacionCreate):
+async def create_donacion(
+    data: DonacionCreate,
+    current_user: dict = Depends(require_auth),
+):
+    user_role = str(current_user.get("rol", "voluntario")).lower()
+    user_sub = str(current_user.get("sub", ""))
+    effective_user_id = data.usuario_id if user_role in ["admin", "administrador"] else (user_sub or data.usuario_id)
+
     supabase = get_supabase()
     if supabase:
         try:
@@ -44,7 +81,7 @@ async def create_donacion(data: DonacionCreate):
                 "estadopago": "Confirmada",
                 "fechadonacion": datetime.utcnow().strftime("%Y-%m-%d"),
                 "anonima": "No",
-                "usuarios_idusuarios": int(data.usuario_id) if data.usuario_id.isdigit() else 1,
+                "usuarios_idusuarios": int(effective_user_id) if effective_user_id.isdigit() else 1,
             }
             res = supabase.table("donaciones").insert(record).execute()
             if res.data and len(res.data) > 0:
@@ -54,27 +91,11 @@ async def create_donacion(data: DonacionCreate):
 
     return DonacionResponse(
         id=str(uuid.uuid4()),
-        usuario_id=data.usuario_id,
+        usuario_id=effective_user_id,
         monto=data.monto,
         metodo_pago=data.metodo_pago,
         estado="completada",
-        codigo_transaccion=f"TX-FB-{int(datetime.utcnow().timestamp())}",
-        proyecto_destino=data.proyecto_destino,
+        codigo_transaccion=f"TX-FB-{uuid.uuid4().hex[:8].upper()}",
+        proyecto_destino="Fondo General de Conservación",
         fecha=datetime.utcnow(),
     )
-
-@router.get("/usuario/{usuario_id}", response_model=List[DonacionResponse])
-async def get_donations_by_user(usuario_id: str):
-    supabase = get_supabase()
-    if supabase:
-        try:
-            if usuario_id.isdigit():
-                res = supabase.table("donaciones").select("*").eq("usuarios_idusuarios", int(usuario_id)).execute()
-            else:
-                res = supabase.table("donaciones").select("*").execute()
-            if res.data and len(res.data) > 0:
-                return [map_donacion(d) for d in res.data]
-        except Exception as e:
-            print(f"[Donaciones Router] Supabase get error: {e}")
-
-    return []
