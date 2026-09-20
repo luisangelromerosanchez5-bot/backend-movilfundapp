@@ -22,10 +22,14 @@ def create_access_token(
     else:
         expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
+    is_admin = str(rol).lower() in ["admin", "administrador"]
     to_encode = {
         "exp": expire,
         "sub": str(subject),
+        "id": str(subject),
         "rol": rol,
+        "role": rol,
+        "es_admin": is_admin,
     }
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt

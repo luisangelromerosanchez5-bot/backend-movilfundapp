@@ -5,7 +5,7 @@ from fastapi import APIRouter, Query, Depends, HTTPException, status
 from app.schemas.asistencia import CheckInRequest, CheckOutRequest, AsistenciaResponse
 from app.core.utils import calculate_haversine_distance
 from app.core.database import get_supabase
-from app.core.deps import require_auth
+from app.core.deps import require_auth, is_admin_user, get_user_id_from_payload
 
 router = APIRouter(prefix="/asistencias", tags=["Asistencias"])
 
@@ -13,17 +13,20 @@ _mock_asistencias_db = {}
 
 @router.get("", response_model=List[AsistenciaResponse])
 async def list_asistencias(
-    usuario_id: Optional[str] = Query(None),
+    usuario_id: Optional[str] = Query(None, description="Filtrar por usuario (solo Admin)"),
     current_user: dict = Depends(require_auth),
 ):
-    user_role = str(current_user.get("rol", "voluntario")).lower()
-    user_sub = str(current_user.get("sub", ""))
+    """
+    Lista asistencias aplicando RBAC:
+    - Admin: Retorna el listado global de todas las asistencias registradas (o filtra por usuario_id).
+    - Usuario Regular: Filtra automáticamente para retornar únicamente sus asistencias personales.
+    """
+    user_id = get_user_id_from_payload(current_user)
+    is_admin = is_admin_user(current_user)
 
-    # RBAC: Si es voluntario regular, solo puede ver sus propias asistencias
-    if user_role not in ["admin", "administrador"]:
-        target_user_id = user_sub
+    if not is_admin:
+        target_user_id = user_id
     else:
-        # El admin puede ver todas o filtrar por un usuario específico
         target_user_id = usuario_id
 
     supabase = get_supabase()
@@ -33,7 +36,7 @@ async def list_asistencias(
             if target_user_id:
                 query = query.eq("usuario_id", target_user_id)
             res = query.order("check_in_at", desc=True).execute()
-            if res.data:
+            if res.data and len(res.data) > 0:
                 return [AsistenciaResponse(**item) for item in res.data]
         except Exception as e:
             print(f"[Asistencias List] Supabase error: {e}")

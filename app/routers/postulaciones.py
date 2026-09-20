@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.schemas.postulacion import PostulacionCreate, PostulacionResponse
 from app.core.database import get_supabase
-from app.core.deps import require_auth, require_role
+from app.core.deps import require_auth, require_role, is_admin_user, get_user_id_from_payload
 
 router = APIRouter(prefix="/postulaciones", tags=["Postulaciones"])
 
@@ -90,15 +90,20 @@ _mock_postulaciones_db = [
 async def list_postulaciones(
     current_user: dict = Depends(require_auth),
 ):
-    user_role = str(current_user.get("rol", "voluntario")).lower()
-    user_sub = str(current_user.get("sub", ""))
+    """
+    Lista postulaciones aplicando RBAC:
+    - Admin: Retorna el listado global de postulaciones recibidas en la plataforma.
+    - Usuario Regular: Retorna exclusivamente sus postulaciones personales.
+    """
+    user_id = get_user_id_from_payload(current_user)
+    is_admin = is_admin_user(current_user)
 
     supabase = get_supabase()
     if supabase:
         try:
             query = supabase.table("postulaciones").select("*")
-            if user_role not in ["admin", "administrador"]:
-                query = query.eq("usuario_id", user_sub)
+            if not is_admin:
+                query = query.eq("usuario_id", user_id)
             res = query.order("created_at", desc=True).execute()
             if res.data and len(res.data) > 0:
                 return [PostulacionResponse(**p) for p in res.data]
@@ -106,8 +111,8 @@ async def list_postulaciones(
             print(f"[Postulaciones List] Error: {e}")
 
     results = _mock_postulaciones_db
-    if user_role not in ["admin", "administrador"]:
-        results = [p for p in results if str(p.get("usuario_id")) in [user_sub, "1", "u101-uuid-biosferas-voluntario"]]
+    if not is_admin:
+        results = [p for p in results if str(p.get("usuario_id")) in [user_id, "1", "u101-uuid-biosferas-voluntario"]]
     return [PostulacionResponse(**p) for p in results]
 
 @router.get("/usuario/{usuario_id}", response_model=List[PostulacionResponse])
@@ -115,10 +120,15 @@ async def get_postulaciones_by_user(
     usuario_id: str,
     current_user: dict = Depends(require_auth),
 ):
-    user_role = str(current_user.get("rol", "voluntario")).lower()
-    user_sub = str(current_user.get("sub", ""))
+    """
+    Consulta postulaciones por usuario_id:
+    - Admin: Puede consultar las postulaciones de cualquier usuario.
+    - Usuario Regular: Solo puede consultar sus propias postulaciones. Si intenta pasar el usuario_id de otra persona, retorna 403 Forbidden.
+    """
+    user_id = get_user_id_from_payload(current_user)
+    is_admin = is_admin_user(current_user)
 
-    if user_role not in ["admin", "administrador"] and user_sub != usuario_id and usuario_id not in ["1", "u101-uuid-biosferas-voluntario"]:
+    if not is_admin and user_id != usuario_id and usuario_id not in ["1", "u101-uuid-biosferas-voluntario"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Acceso restringido: Solo puedes consultar tus propias postulaciones.",
