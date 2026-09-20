@@ -110,6 +110,9 @@ async def login(credentials: UserLogin):
                     )
                 else:
                     raise HTTPException(status_code=401, detail="Contraseña incorrecta")
+            else:
+                # El usuario no se encontró en Supabase
+                pass
         except HTTPException:
             raise
         except Exception as e:
@@ -150,7 +153,10 @@ async def login(credentials: UserLogin):
         token = create_access_token(user_resp.id, rol="voluntario")
         return TokenResponse(access_token=token, token_type="bearer", user=user_resp)
 
-    raise HTTPException(status_code=401, detail="Usuario no encontrado o credenciales incorrectas")
+    if not supabase:
+        raise HTTPException(status_code=401, detail="Error crítico: No hay conexión a la base de datos Supabase.")
+
+    raise HTTPException(status_code=401, detail=f"El correo '{email_clean}' no está registrado en la base de datos.")
 
 @router.post("/register", response_model=TokenResponse)
 async def register(data: UserRegister):
