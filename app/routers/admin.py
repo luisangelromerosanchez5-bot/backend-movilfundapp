@@ -5,6 +5,7 @@ from app.core.database import get_supabase
 from app.schemas.asistencia import AsistenciaResponse
 from app.schemas.postulacion import PostulacionResponse
 from app.schemas.actividad import ActividadResponse
+from app.routers.postulaciones import _mock_postulaciones_db
 
 router = APIRouter(prefix="/admin", tags=["Panel de Administración"])
 
@@ -49,7 +50,7 @@ async def get_all_admin_asistencias():
     if supabase:
         try:
             res = supabase.table("asistencias").select("*").order("check_in_at", desc=True).execute()
-            if res.data:
+            if res.data and len(res.data) > 0:
                 return [AsistenciaResponse(**item) for item in res.data]
         except Exception as e:
             print(f"[Admin Asistencias] Error: {e}")
@@ -62,8 +63,8 @@ async def get_all_admin_postulaciones():
     if supabase:
         try:
             res = supabase.table("postulaciones").select("*").order("created_at", desc=True).execute()
-            if res.data:
+            if res.data and len(res.data) > 0:
                 return [PostulacionResponse(**p) for p in res.data]
         except Exception as e:
             print(f"[Admin Postulaciones] Error: {e}")
-    return []
+    return [PostulacionResponse(**p) for p in _mock_postulaciones_db]

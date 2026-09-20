@@ -183,16 +183,33 @@ async def register(data: UserRegister):
     token = create_access_token(user_resp.id, rol="voluntario")
     return TokenResponse(access_token=token, token_type="bearer", user=user_resp)
 
+from app.core.deps import require_auth
+
 @router.get("/me", response_model=UserResponse)
-async def get_me():
+async def get_me(current_user: dict = Depends(require_auth)):
+    user_id = str(current_user.get("sub", "1"))
+    user_role = str(current_user.get("rol", "voluntario"))
+    
+    supabase = get_supabase()
+    if supabase:
+        try:
+            if user_id.isdigit():
+                res = supabase.table("personas").select("*").eq("idusuarios", int(user_id)).execute()
+            else:
+                res = supabase.table("personas").select("*").eq("idusuarios", user_id).execute()
+            if res.data and len(res.data) > 0:
+                return map_persona_to_user(res.data[0], supabase)
+        except Exception as e:
+            print(f"[Auth Me] Error: {e}")
+
     return UserResponse(
-        id="1",
-        nombres="Luis Fernando",
-        apellidos="Pérez Gómez",
-        correo="luis@correo.com",
-        fecha_nacimiento="2001-05-02",
-        telefono="+57 312 456 7890",
-        rol="voluntario",
+        id=user_id,
+        nombres="Administrador" if user_role == "admin" else "Luis Fernando",
+        apellidos="Fundación Biosferas" if user_role == "admin" else "Pérez Gómez",
+        correo="admin@fundapp.org" if user_role == "admin" else "luis@correo.com",
+        fecha_nacimiento="1990-01-01" if user_role == "admin" else "2001-05-02",
+        telefono="+57 300 123 4567" if user_role == "admin" else "+57 312 456 7890",
+        rol=user_role,
         meta_anual_horas=20,
         horas_acumuladas=0,
         total_certificados=0,

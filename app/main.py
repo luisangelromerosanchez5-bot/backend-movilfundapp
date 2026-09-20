@@ -46,8 +46,31 @@ def custom_openapi():
             "description": "Ingresa el token JWT obtenido en /api/v1/auth/login",
         }
     }
-    # Candado global para Swagger
-    openapi_schema["security"] = [{"BearerAuth": []}]
+    
+    # Endpoints que son explícitamente públicos (sin candado)
+    public_routes = {
+        ("/", "get"),
+        ("/health", "get"),
+        (f"{settings.API_V1_STR}/auth/login", "post"),
+        (f"{settings.API_V1_STR}/auth/register", "post"),
+        (f"{settings.API_V1_STR}/actividades", "get"),
+    }
+
+    for path, path_item in openapi_schema.get("paths", {}).items():
+        for method, operation in path_item.items():
+            if method.lower() not in ["get", "post", "put", "patch", "delete"]:
+                continue
+            
+            # Detalle de actividad público
+            if path.startswith(f"{settings.API_V1_STR}/actividades/") and method.lower() == "get":
+                operation["security"] = []
+                continue
+
+            if (path, method.lower()) in public_routes:
+                operation["security"] = []
+            else:
+                operation["security"] = [{"BearerAuth": []}]
+
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
