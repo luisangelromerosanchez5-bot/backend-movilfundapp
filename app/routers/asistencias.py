@@ -1,23 +1,37 @@
 import uuid
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends, HTTPException, status
 from app.schemas.asistencia import CheckInRequest, CheckOutRequest, AsistenciaResponse
 from app.core.utils import calculate_haversine_distance
 from app.core.database import get_supabase
+from app.core.deps import require_auth
 
-router = APIRouter(prefix="/asistencias", tags=["Asistencias & Sensores"])
+router = APIRouter(prefix="/asistencias", tags=["Asistencias"])
 
 _mock_asistencias_db = {}
 
 @router.get("", response_model=List[AsistenciaResponse])
-async def list_asistencias(usuario_id: Optional[str] = Query(None)):
+async def list_asistencias(
+    usuario_id: Optional[str] = Query(None),
+    current_user: dict = Depends(require_auth),
+):
+    user_role = str(current_user.get("rol", "voluntario")).lower()
+    user_sub = str(current_user.get("sub", ""))
+
+    # RBAC: Si es voluntario regular, solo puede ver sus propias asistencias
+    if user_role not in ["admin", "administrador"]:
+        target_user_id = user_sub
+    else:
+        # El admin puede ver todas o filtrar por un usuario específico
+        target_user_id = usuario_id
+
     supabase = get_supabase()
     if supabase:
         try:
             query = supabase.table("asistencias").select("*")
-            if usuario_id:
-                query = query.eq("usuario_id", usuario_id)
+            if target_user_id:
+                query = query.eq("usuario_id", target_user_id)
             res = query.order("check_in_at", desc=True).execute()
             if res.data:
                 return [AsistenciaResponse(**item) for item in res.data]
@@ -25,12 +39,21 @@ async def list_asistencias(usuario_id: Optional[str] = Query(None)):
             print(f"[Asistencias List] Supabase error: {e}")
 
     results = list(_mock_asistencias_db.values())
-    if usuario_id:
-        results = [a for a in results if a.get("usuario_id") == usuario_id]
+    if target_user_id:
+        results = [a for a in results if str(a.get("usuario_id")) == str(target_user_id)]
     return [AsistenciaResponse(**a) for a in results]
 
 @router.post("", response_model=AsistenciaResponse)
-async def check_in_asistencia(payload: CheckInRequest):
+async def check_in_asistencia(
+    payload: CheckInRequest,
+    current_user: dict = Depends(require_auth),
+):
+    user_role = str(current_user.get("rol", "voluntario")).lower()
+    user_sub = str(current_user.get("sub", ""))
+
+    # Si no es admin, el check-in se asocia obligatoriamente al usuario autenticado
+    effective_user_id = payload.usuario_id if user_role in ["admin", "administrador"] else (user_sub or payload.usuario_id)
+
     target_lat = 4.711000
     target_lng = -74.072100
 
@@ -59,7 +82,7 @@ async def check_in_asistencia(payload: CheckInRequest):
     new_asistencia = {
         "id": asistencia_id,
         "actividad_id": payload.actividad_id,
-        "usuario_id": payload.usuario_id,
+        "usuario_id": effective_user_id,
         "postulacion_id": payload.postulacion_id,
         "lat_registrada": payload.lat_registrada,
         "lng_registrada": payload.lng_registrada,
@@ -89,7 +112,11 @@ async def check_in_asistencia(payload: CheckInRequest):
     return AsistenciaResponse(**new_asistencia)
 
 @router.patch("/{asistencia_id}", response_model=AsistenciaResponse)
-async def check_out_asistencia(asistencia_id: str, payload: CheckOutRequest):
+async def check_out_asistencia(
+    asistencia_id: str,
+    payload: CheckOutRequest,
+    current_user: dict = Depends(require_auth),
+):
     supabase = get_supabase()
     now = datetime.utcnow()
 
@@ -114,7 +141,7 @@ async def check_out_asistencia(asistencia_id: str, payload: CheckOutRequest):
         asistencia = {
             "id": asistencia_id,
             "actividad_id": "1",
-            "usuario_id": "1",
+            "usuario_id": str(current_user.get("sub", "1")),
             "lat_registrada": 4.711000,
             "lng_registrada": -74.072100,
             "distancia_metros": 38,

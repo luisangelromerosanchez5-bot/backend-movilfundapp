@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, status
 from app.schemas.certificado import CertificadoResponse, CertificadoCreate
 from app.core.database import get_supabase
 from app.core.deps import require_auth
@@ -51,15 +51,29 @@ def map_certificado(row: dict) -> CertificadoResponse:
     )
 
 @router.get("", response_model=List[CertificadoResponse])
-async def list_certificates(usuario_id: Optional[str] = Query(None)):
+async def list_certificates(
+    usuario_id: Optional[str] = Query(None),
+    current_user: dict = Depends(require_auth),
+):
+    user_role = str(current_user.get("rol", "voluntario")).lower()
+    user_sub = str(current_user.get("sub", ""))
+
+    # RBAC: El admin puede consultar todos o por usuario_id. El voluntario sólo sus propios certificados.
+    if user_role in ["admin", "administrador"]:
+        target_user = usuario_id
+    else:
+        target_user = user_sub
+
     supabase = get_supabase()
-    if supabase and usuario_id:
+    if supabase:
         try:
             query = supabase.table("certificados").select("*")
-            if usuario_id.isdigit():
-                res = query.eq("usuarios_idusuarios", int(usuario_id)).execute()
-            else:
-                res = query.eq("usuarios_idusuarios", usuario_id).execute()
+            if target_user:
+                if target_user.isdigit():
+                    query = query.eq("usuarios_idusuarios", int(target_user))
+                else:
+                    query = query.eq("usuarios_idusuarios", target_user)
+            res = query.execute()
             if res.data:
                 return [map_certificado(c) for c in res.data]
         except Exception as e:
@@ -67,7 +81,20 @@ async def list_certificates(usuario_id: Optional[str] = Query(None)):
     return []
 
 @router.get("/usuario/{usuario_id}", response_model=List[CertificadoResponse])
-async def get_certificates_by_user(usuario_id: str):
+async def get_certificates_by_user(
+    usuario_id: str,
+    current_user: dict = Depends(require_auth),
+):
+    user_role = str(current_user.get("rol", "voluntario")).lower()
+    user_sub = str(current_user.get("sub", ""))
+
+    # RBAC: Bloquear consulta si no es admin y pide certificados de otra persona
+    if user_role not in ["admin", "administrador"] and user_sub != usuario_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acceso restringido: Solo puedes consultar tus propios certificados.",
+        )
+
     supabase = get_supabase()
     if supabase:
         try:
@@ -83,7 +110,15 @@ async def get_certificates_by_user(usuario_id: str):
     return []
 
 @router.post("", response_model=CertificadoResponse)
-async def create_certificate(cert_data: CertificadoCreate):
+async def create_certificate(
+    cert_data: CertificadoCreate,
+    current_user: dict = Depends(require_auth),
+):
+    user_role = str(current_user.get("rol", "voluntario")).lower()
+    user_sub = str(current_user.get("sub", ""))
+
+    effective_user_id = cert_data.usuario_id if user_role in ["admin", "administrador"] else (user_sub or cert_data.usuario_id)
+
     supabase = get_supabase()
     codigo_verif = f"FB-{'VOL' if cert_data.tipo == 'voluntariado' else 'DON'}-2026-{str(uuid.uuid4().int)[:6]}"
     
@@ -93,7 +128,7 @@ async def create_certificate(cert_data: CertificadoCreate):
                 "nombrevoluntario": cert_data.destinatario or "Voluntario Biosferas",
                 "actividadasociada": cert_data.actividad_titulo or "Jornada Ambiental",
                 "codigo_verificacion": codigo_verif,
-                "usuarios_idusuarios": int(cert_data.usuario_id) if cert_data.usuario_id and cert_data.usuario_id.isdigit() else 1,
+                "usuarios_idusuarios": int(effective_user_id) if effective_user_id and effective_user_id.isdigit() else 1,
             }
             if cert_data.actividad_id and cert_data.actividad_id.isdigit():
                 new_row["actividades_idactividades"] = int(cert_data.actividad_id)
@@ -101,13 +136,13 @@ async def create_certificate(cert_data: CertificadoCreate):
             if res.data and len(res.data) > 0:
                 return map_certificado(res.data[0])
         except Exception as e:
-            print(f"[Certificados Create] Supabase error: {e}")
+            print(f"[Certificados Create] Error: {e}")
 
     return CertificadoResponse(
         id=str(uuid.uuid4()),
-        usuario_id=cert_data.usuario_id,
+        usuario_id=effective_user_id,
         actividad_id=cert_data.actividad_id,
-        donacion_id=cert_data.donacion_id,
+        donacion_id=None,
         tipo=cert_data.tipo,
         titulo=cert_data.titulo,
         actividad_titulo=cert_data.actividad_titulo,
@@ -117,20 +152,6 @@ async def create_certificate(cert_data: CertificadoCreate):
         estado="aprobado",
         codigo_verificacion=codigo_verif,
         firmado_por="Dra. Elena Ramos - Directora Ejecutiva",
-        destinatario=cert_data.destinatario,
+        destinatario=cert_data.destinatario or "Voluntario Biosferas",
         documento_identidad=cert_data.documento_identidad or "1.098.765.432",
     )
-
-@router.get("/{cert_id}", response_model=CertificadoResponse)
-async def get_certificate_by_id(cert_id: str):
-    supabase = get_supabase()
-    if supabase:
-        try:
-            if cert_id.isdigit():
-                res = supabase.table("certificados").select("*").eq("idcertificados", int(cert_id)).execute()
-                if res.data and len(res.data) > 0:
-                    return map_certificado(res.data[0])
-        except Exception as e:
-            print(f"[Certificados Get] Supabase error: {e}")
-
-    raise HTTPException(status_code=404, detail="Certificado no encontrado")
