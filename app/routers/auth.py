@@ -1,9 +1,10 @@
 import uuid
 import hashlib
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from app.schemas.auth import UserLogin, UserRegister, UserResponse, TokenResponse
 from app.core.security import create_access_token, verify_password, get_password_hash
 from app.core.database import get_supabase
+from app.core.deps import require_auth
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
@@ -182,8 +183,6 @@ async def register(data: UserRegister):
     )
     token = create_access_token(user_resp.id, rol="voluntario")
     return TokenResponse(access_token=token, token_type="bearer", user=user_resp)
-
-from app.core.deps import require_auth
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(require_auth)):
