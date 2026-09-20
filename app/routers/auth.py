@@ -87,10 +87,17 @@ async def login(credentials: UserLogin):
     
     if supabase:
         try:
-            res = supabase.table("personas").select("*").eq("correo", email_clean).execute()
-            if not res.data:
-                res = supabase.table("personas").select("*").eq("email", email_clean).execute()
-            if res.data and len(res.data) > 0:
+            try:
+                res = supabase.table("personas").select("*").eq("correo", email_clean).execute()
+            except Exception:
+                res = None
+
+            if not res or not res.data:
+                try:
+                    res = supabase.table("personas").select("*").eq("email", email_clean).execute()
+                except Exception:
+                    pass
+            if res and res.data and len(res.data) > 0:
                 user_data = res.data[0]
                 stored_pass = user_data.get("contrasena") or user_data.get("password") or ""
                 if check_password_flexible(credentials.password, stored_pass):
