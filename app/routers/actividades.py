@@ -24,7 +24,8 @@ def map_supabase_actividad(row: dict) -> ActividadResponse:
     radio = int(row.get("radio_permitido_metros") or 100)
     puntos = int(row.get("puntos_impacto") or 100)
     tags = row.get("tags") or ["Voluntariado", "Comunidad"]
-    imagen_url = row.get("imagen_url") or "assets/images/act_reforestacion_rio.jpg"
+    img_val = row.get("imagen_url") or row.get("imagenUrl") or row.get("imagen") or row.get("foto") or row.get("foto_url")
+    imagen_url = img_val if img_val else "assets/images/act_reforestacion_rio.jpg"
 
     return ActividadResponse(
         id=act_id,

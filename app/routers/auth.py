@@ -88,9 +88,11 @@ async def login(credentials: UserLogin):
     if supabase:
         try:
             res = supabase.table("personas").select("*").eq("correo", email_clean).execute()
+            if not res.data:
+                res = supabase.table("personas").select("*").eq("email", email_clean).execute()
             if res.data and len(res.data) > 0:
                 user_data = res.data[0]
-                stored_pass = user_data.get("contrasena") or ""
+                stored_pass = user_data.get("contrasena") or user_data.get("password") or ""
                 if check_password_flexible(credentials.password, stored_pass):
                     user_resp = map_persona_to_user(user_data, supabase)
                     token = create_access_token(user_resp.id, rol=user_resp.rol)
@@ -154,11 +156,7 @@ async def register(data: UserRegister):
                 "nombrecompleto": f"{data.nombres} {data.apellidos}".strip(),
                 "correo": data.correo.strip().lower(),
                 "contrasena": sha256_pass,
-                "tipodocumento": "CC",
-                "numerodocumento": int(str(uuid.uuid4().int)[:6]),
                 "telefono": int(data.telefono.replace('+', '').replace(' ', '')) if data.telefono and data.telefono.replace('+', '').replace(' ', '').isdigit() else 3000000000,
-                "ciudad": "Bogotá",
-                "estadodecuenta": "Activo",
             }
             res = supabase.table("personas").insert(new_persona).execute()
             if res.data and len(res.data) > 0:

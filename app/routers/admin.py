@@ -64,7 +64,8 @@ async def get_all_admin_postulaciones():
         try:
             res = supabase.table("postulaciones").select("*").order("created_at", desc=True).execute()
             if res.data and len(res.data) > 0:
-                return [PostulacionResponse(**p) for p in res.data]
+                from app.routers.postulaciones import map_supabase_postulacion
+                return [map_supabase_postulacion(p) for p in res.data]
         except Exception as e:
             print(f"[Admin Postulaciones] Error: {e}")
     return [PostulacionResponse(**p) for p in _mock_postulaciones_db]

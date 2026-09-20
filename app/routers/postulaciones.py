@@ -86,6 +86,23 @@ _mock_postulaciones_db = [
     },
 ]
 
+def map_supabase_postulacion(row: dict) -> PostulacionResponse:
+    return PostulacionResponse(
+        id=str(row.get("idpostulaciones") or row.get("id") or ""),
+        actividad_id=str(row.get("actividades_idactividades") or row.get("actividad_id") or ""),
+        usuario_id=str(row.get("usuarios_idusuarios") or row.get("usuario_id") or ""),
+        actividad_titulo=row.get("actividad_titulo") or row.get("actividad") or "Jornada de Voluntariado",
+        actividad_categoria=row.get("actividad_categoria") or "Voluntariado",
+        actividad_fecha=row.get("actividad_fecha") or row.get("fecha") or "2026-09-05",
+        actividad_hora=row.get("actividad_hora") or row.get("hora") or "08:00 AM",
+        actividad_ubicacion=row.get("actividad_ubicacion") or row.get("ubicacion") or "Punto de encuentro",
+        voluntario_nombre=row.get("voluntario_nombre") or row.get("voluntario") or "Voluntario",
+        voluntario_correo=row.get("voluntario_correo") or row.get("correo") or "voluntario@fundapp.org",
+        estado=row.get("estado") or row.get("estadopostulacion") or "aprobada",
+        notas=row.get("notas") or row.get("comentario"),
+        created_at=row.get("created_at") or row.get("fechapostulacion"),
+    )
+
 @router.get("", response_model=List[PostulacionResponse])
 async def list_postulaciones(
     current_user: dict = Depends(require_auth),
@@ -106,7 +123,7 @@ async def list_postulaciones(
                 query = query.eq("usuario_id", user_id)
             res = query.order("created_at", desc=True).execute()
             if res.data and len(res.data) > 0:
-                return [PostulacionResponse(**p) for p in res.data]
+                return [map_supabase_postulacion(p) for p in res.data]
         except Exception as e:
             print(f"[Postulaciones List] Error: {e}")
 
@@ -139,7 +156,7 @@ async def get_postulaciones_by_user(
         try:
             res = supabase.table("postulaciones").select("*").eq("usuario_id", usuario_id).execute()
             if res.data and len(res.data) > 0:
-                return [PostulacionResponse(**p) for p in res.data]
+                return [map_supabase_postulacion(p) for p in res.data]
         except Exception as e:
             print(f"[Postulaciones User] Error: {e}")
 

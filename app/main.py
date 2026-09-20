@@ -38,6 +38,9 @@ def custom_openapi():
         description="API REST de Fundación Biosferas para FundAPP (Móvil y Web)",
         routes=app.routes,
     )
+    if "components" not in openapi_schema:
+        openapi_schema["components"] = {}
+    
     openapi_schema["components"]["securitySchemes"] = {
         "BearerAuth": {
             "type": "http",
