@@ -169,7 +169,11 @@ async def register(data: UserRegister):
                 "nombrecompleto": f"{data.nombres} {data.apellidos}".strip(),
                 "correo": data.correo.strip().lower(),
                 "contrasena": sha256_pass,
+                "tipodocumento": "CC",
+                "numerodocumento": int(str(uuid.uuid4().int)[:6]),
                 "telefono": int(data.telefono.replace('+', '').replace(' ', '')) if data.telefono and data.telefono.replace('+', '').replace(' ', '').isdigit() else 3000000000,
+                "ciudad": "Bogotá",
+                "estadodecuenta": "Activo",
             }
             res = supabase.table("personas").insert(new_persona).execute()
             if res.data and len(res.data) > 0:
