@@ -116,18 +116,23 @@ async def list_postulaciones(
     user_id = get_user_id_from_payload(current_user)
     is_admin = is_admin_user(current_user)
 
+    try:
+        user_id_int = int(user_id)
+    except ValueError:
+        user_id_int = None
+
     supabase = get_supabase()
     if supabase:
         try:
             try:
                 query = supabase.table("postulaciones").select("*, actividades(*)")
-                if not is_admin:
-                    query = query.eq("usuarios_idusuarios", user_id)
+                if not is_admin and user_id_int:
+                    query = query.eq("usuarios_idusuarios", user_id_int)
                 res = query.execute() # Removed order by created_at since it doesn't exist
             except Exception:
                 query = supabase.table("postulaciones").select("*, actividades(*)")
-                if not is_admin:
-                    query = query.eq("usuario_id", user_id)
+                if not is_admin and user_id_int:
+                    query = query.eq("usuario_id", user_id_int)
                 res = query.execute()
             
             if res and res.data is not None:
@@ -159,13 +164,18 @@ async def get_postulaciones_by_user(
             detail="Acceso restringido: Solo puedes consultar tus propias postulaciones.",
         )
 
+    try:
+        user_id_int = int(usuario_id)
+    except ValueError:
+        user_id_int = None
+
     supabase = get_supabase()
-    if supabase:
+    if supabase and user_id_int:
         try:
             try:
-                res = supabase.table("postulaciones").select("*").eq("usuarios_idusuarios", usuario_id).execute()
+                res = supabase.table("postulaciones").select("*, actividades(*)").eq("usuarios_idusuarios", user_id_int).execute()
             except Exception:
-                res = supabase.table("postulaciones").select("*").eq("usuario_id", usuario_id).execute()
+                res = supabase.table("postulaciones").select("*, actividades(*)").eq("usuario_id", user_id_int).execute()
                 
             if res and res.data is not None:
                 return [map_supabase_postulacion(p) for p in res.data]
