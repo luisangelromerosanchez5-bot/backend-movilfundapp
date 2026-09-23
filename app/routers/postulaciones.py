@@ -87,20 +87,21 @@ _mock_postulaciones_db = [
 ]
 
 def map_supabase_postulacion(row: dict) -> PostulacionResponse:
+    actividad = row.get("actividades") or {}
     return PostulacionResponse(
         id=str(row.get("idpostulaciones") or row.get("id") or ""),
         actividad_id=str(row.get("actividades_idactividades") or row.get("actividad_id") or ""),
         usuario_id=str(row.get("usuarios_idusuarios") or row.get("usuario_id") or ""),
-        actividad_titulo=row.get("actividad_titulo") or row.get("actividad") or "Jornada de Voluntariado",
-        actividad_categoria=row.get("actividad_categoria") or "Voluntariado",
-        actividad_fecha=row.get("actividad_fecha") or row.get("fecha") or "2026-09-05",
-        actividad_hora=row.get("actividad_hora") or row.get("hora") or "08:00 AM",
-        actividad_ubicacion=row.get("actividad_ubicacion") or row.get("ubicacion") or "Punto de encuentro",
+        actividad_titulo=actividad.get("nombreactividad") or row.get("actividad_titulo") or row.get("actividad") or "Jornada de Voluntariado",
+        actividad_categoria=actividad.get("tipoactividad") or row.get("actividad_categoria") or "Voluntariado",
+        actividad_fecha=actividad.get("fecha") or row.get("actividad_fecha") or row.get("fecha") or "2026-09-05",
+        actividad_hora=actividad.get("hora") or row.get("actividad_hora") or row.get("hora") or "08:00 AM",
+        actividad_ubicacion=actividad.get("ubicacion") or row.get("actividad_ubicacion") or row.get("ubicacion") or "Punto de encuentro",
         voluntario_nombre=row.get("voluntario_nombre") or row.get("voluntario") or "Voluntario",
         voluntario_correo=row.get("voluntario_correo") or row.get("correo") or "voluntario@fundapp.org",
-        estado=row.get("estado") or row.get("estadopostulacion") or "aprobada",
-        notas=row.get("notas") or row.get("comentario"),
-        created_at=row.get("created_at") or row.get("fechapostulacion"),
+        estado=row.get("estadopostulacion") or row.get("estado") or "aprobada",
+        notas=row.get("comentario") or row.get("notas"),
+        created_at=row.get("fechapostulacion") or row.get("created_at"),
     )
 
 @router.get("", response_model=List[PostulacionResponse])
@@ -118,11 +119,18 @@ async def list_postulaciones(
     supabase = get_supabase()
     if supabase:
         try:
-            query = supabase.table("postulaciones").select("*")
-            if not is_admin:
-                query = query.eq("usuario_id", user_id)
-            res = query.order("created_at", desc=True).execute()
-            if res.data and len(res.data) > 0:
+            try:
+                query = supabase.table("postulaciones").select("*, actividades(*)")
+                if not is_admin:
+                    query = query.eq("usuarios_idusuarios", user_id)
+                res = query.execute() # Removed order by created_at since it doesn't exist
+            except Exception:
+                query = supabase.table("postulaciones").select("*, actividades(*)")
+                if not is_admin:
+                    query = query.eq("usuario_id", user_id)
+                res = query.execute()
+            
+            if res and res.data is not None:
                 return [map_supabase_postulacion(p) for p in res.data]
         except Exception as e:
             print(f"[Postulaciones List] Error: {e}")
@@ -154,8 +162,12 @@ async def get_postulaciones_by_user(
     supabase = get_supabase()
     if supabase:
         try:
-            res = supabase.table("postulaciones").select("*").eq("usuario_id", usuario_id).execute()
-            if res.data and len(res.data) > 0:
+            try:
+                res = supabase.table("postulaciones").select("*").eq("usuarios_idusuarios", usuario_id).execute()
+            except Exception:
+                res = supabase.table("postulaciones").select("*").eq("usuario_id", usuario_id).execute()
+                
+            if res and res.data is not None:
                 return [map_supabase_postulacion(p) for p in res.data]
         except Exception as e:
             print(f"[Postulaciones User] Error: {e}")
@@ -196,16 +208,42 @@ async def create_postulacion(
     supabase = get_supabase()
     if supabase:
         try:
-            supabase_record = {
-                **record,
-                "created_at": record["created_at"].isoformat(),
-            }
-            res = supabase.table("postulaciones").insert(supabase_record).execute()
-            if res.data and len(res.data) > 0:
-                return PostulacionResponse(**res.data[0])
+            # 1. Asegurar que existe en la tabla voluntarios
+            res_vol = supabase.table("voluntarios").select("*").eq("usuarios_idusuarios", effective_user_id).execute()
+            voluntario_id = None
+            if res_vol and res_vol.data:
+                voluntario_id = res_vol.data[0]["idvoluntarios"]
+            else:
+                # Insertar en voluntarios
+                try:
+                    res_ins = supabase.table("voluntarios").insert({
+                        "usuarios_idusuarios": effective_user_id,
+                        "usuarios_idusuarios_ref": effective_user_id
+                    }).execute()
+                    if res_ins and res_ins.data:
+                        voluntario_id = res_ins.data[0]["idvoluntarios"]
+                except Exception as e:
+                    print(f"Error creando voluntario: {e}")
+
+            if voluntario_id:
+                # 2. Insertar postulacin con esquema correcto
+                supabase_record = {
+                    "fechapostulacion": datetime.utcnow().strftime("%Y-%m-%d"),
+                    "estadopostulacion": "Aprobada",
+                    "comentario": data.notas or "",
+                    "diasespera": 0,
+                    "voluntarios_idvoluntarios": voluntario_id,
+                    "voluntarios_usuarios_idusuarios": effective_user_id,
+                    "usuarios_idusuarios": effective_user_id,
+                    "actividades_idactividades": data.actividad_id
+                }
+                res = supabase.table("postulaciones").insert(supabase_record).execute()
+                if res and res.data and len(res.data) > 0:
+                    return map_supabase_postulacion(res.data[0])
         except Exception as e:
             print(f"[Postulaciones Router] Supabase fallback: {e}")
 
+    # Fallback si todo falla
     _mock_postulaciones_db.insert(0, record)
     return PostulacionResponse(**record)
 
