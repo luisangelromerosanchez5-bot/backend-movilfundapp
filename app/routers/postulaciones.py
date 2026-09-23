@@ -244,7 +244,12 @@ async def create_postulacion(
                 # 2. Insertar postulacin con esquema correcto
                 try:
                     user_id_int = int(effective_user_id)
-                    actividad_id_int = int(data.actividad_id)
+                    import re
+                    nums = re.findall(r'\d+', str(data.actividad_id))
+                    if nums:
+                        actividad_id_int = int(nums[-1])
+                    else:
+                        actividad_id_int = None
                 except ValueError:
                     user_id_int = None
                     actividad_id_int = None
