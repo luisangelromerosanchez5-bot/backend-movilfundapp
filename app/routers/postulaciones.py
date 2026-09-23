@@ -208,44 +208,56 @@ async def create_postulacion(
     supabase = get_supabase()
     if supabase:
         try:
-            # 1. Asegurar que existe en la tabla voluntarios
-            res_vol = supabase.table("voluntarios").select("*").eq("usuarios_idusuarios", effective_user_id).execute()
-            voluntario_id = None
-            if res_vol and res_vol.data:
-                voluntario_id = res_vol.data[0]["idvoluntarios"]
-            else:
-                # Insertar en voluntarios
-                try:
-                    res_ins = supabase.table("voluntarios").insert({
-                        "usuarios_idusuarios": effective_user_id,
-                        "usuarios_idusuarios_ref": effective_user_id
-                    }).execute()
-                    if res_ins and res_ins.data:
-                        voluntario_id = res_ins.data[0]["idvoluntarios"]
-                except Exception as e:
-                    print(f"Error creando voluntario: {e}")
+            try:
+                user_id_int = int(effective_user_id)
+            except ValueError:
+                user_id_int = None
+
+            if user_id_int:
+                res_vol = supabase.table("voluntarios").select("*").eq("usuarios_idusuarios", user_id_int).execute()
+                voluntario_id = None
+                if res_vol and res_vol.data:
+                    voluntario_id = res_vol.data[0]["idvoluntarios"]
+                else:
+                    # Insertar en voluntarios
+                    try:
+                        res_ins = supabase.table("voluntarios").insert({
+                            "usuarios_idusuarios": user_id_int,
+                            "usuarios_idusuarios_ref": user_id_int
+                        }).execute()
+                        if res_ins and res_ins.data:
+                            voluntario_id = res_ins.data[0]["idvoluntarios"]
+                    except Exception as e:
+                        print(f"Error creando voluntario: {e}")
 
             if voluntario_id:
                 # 2. Insertar postulacin con esquema correcto
-                supabase_record = {
-                    "fechapostulacion": datetime.utcnow().strftime("%Y-%m-%d"),
-                    "estadopostulacion": "Aprobada",
-                    "comentario": data.notas or "",
-                    "diasespera": 0,
-                    "voluntarios_idvoluntarios": voluntario_id,
-                    "voluntarios_usuarios_idusuarios": effective_user_id,
-                    "usuarios_idusuarios": effective_user_id,
-                    "actividades_idactividades": data.actividad_id
-                }
-                res = supabase.table("postulaciones").insert(supabase_record).execute()
-                if res and res.data and len(res.data) > 0:
-                    return map_supabase_postulacion(res.data[0])
+                try:
+                    user_id_int = int(effective_user_id)
+                    actividad_id_int = int(data.actividad_id)
+                except ValueError:
+                    user_id_int = None
+                    actividad_id_int = None
+                
+                if user_id_int and actividad_id_int:
+                    supabase_record = {
+                        "fechapostulacion": datetime.utcnow().strftime("%Y-%m-%d"),
+                        "estadopostulacion": "Aprobada",
+                        "comentario": data.notas or "",
+                        "diasespera": 0,
+                        "voluntarios_idvoluntarios": voluntario_id,
+                        "voluntarios_usuarios_idusuarios": user_id_int,
+                        "usuarios_idusuarios": user_id_int,
+                        "actividades_idactividades": actividad_id_int
+                    }
+                    res = supabase.table("postulaciones").insert(supabase_record).execute()
+                    if res and res.data and len(res.data) > 0:
+                        return map_supabase_postulacion(res.data[0])
         except Exception as e:
-            print(f"[Postulaciones Router] Supabase fallback: {e}")
+            print(f"[Postulaciones Router] Error: {e}")
+            raise HTTPException(status_code=500, detail="Error interno al guardar la postulación en la base de datos.")
 
-    # Fallback si todo falla
-    _mock_postulaciones_db.insert(0, record)
-    return PostulacionResponse(**record)
+    raise HTTPException(status_code=500, detail="No se pudo conectar a la base de datos para guardar la postulación.")
 
 @router.patch("/{postulacion_id}/estado", response_model=PostulacionResponse)
 async def update_postulacion_estado(
@@ -262,9 +274,4 @@ async def update_postulacion_estado(
         except Exception as e:
             print(f"[Postulaciones Update Estado] Error: {e}")
 
-    for p in _mock_postulaciones_db:
-        if p["id"] == postulacion_id:
-            p["estado"] = nuevo_estado
-            return PostulacionResponse(**p)
-
-    raise HTTPException(status_code=404, detail="Postulación no encontrada")
+    raise HTTPException(status_code=404, detail='Postulacion no encontrada')
