@@ -34,6 +34,8 @@ def map_donacion(row: dict) -> DonacionResponse:
         fecha=fecha,
     )
 
+_mock_donaciones_db = []
+
 @router.get("", response_model=List[DonacionResponse])
 async def list_donaciones(
     usuario_id: Optional[str] = Query(None),
@@ -61,7 +63,12 @@ async def list_donaciones(
                 return [map_donacion(d) for d in res.data]
         except Exception as e:
             print(f"[Donaciones List] Error: {e}")
-    return []
+            
+    # Fallback to mock DB
+    results = [DonacionResponse(**d) for d in _mock_donaciones_db]
+    if target_user:
+        results = [d for d in results if str(d.usuario_id) == str(target_user)]
+    return sorted(results, key=lambda d: d.fecha, reverse=True)
 
 @router.post("", response_model=DonacionResponse)
 async def create_donacion(
@@ -89,7 +96,8 @@ async def create_donacion(
         except Exception as e:
             print(f"[Donaciones Router] Supabase insert error: {e}")
 
-    return DonacionResponse(
+    # Fallback to mock DB
+    new_d = DonacionResponse(
         id=str(uuid.uuid4()),
         usuario_id=effective_user_id,
         monto=data.monto,
@@ -99,3 +107,6 @@ async def create_donacion(
         proyecto_destino="Fondo General de Conservación",
         fecha=datetime.utcnow(),
     )
+    _mock_donaciones_db.insert(0, new_d.model_dump())
+    return new_d
+

@@ -29,55 +29,7 @@ app.include_router(donaciones.router, prefix=settings.API_V1_STR)
 app.include_router(certificados.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
 
-def custom_openapi():
-    if app.openapi_schema:
-        return app.openapi_schema
-    openapi_schema = get_openapi(
-        title=settings.PROJECT_NAME,
-        version="1.0.0",
-        description="API REST de Fundación Biosferas para FundAPP (Móvil y Web)",
-        routes=app.routes,
-    )
-    if "components" not in openapi_schema:
-        openapi_schema["components"] = {}
-    
-    openapi_schema["components"]["securitySchemes"] = {
-        "BearerAuth": {
-            "type": "http",
-            "scheme": "bearer",
-            "bearerFormat": "JWT",
-            "description": "Ingresa el token JWT obtenido en /api/v1/auth/login",
-        }
-    }
-    
-    # Endpoints que son explícitamente públicos (sin candado)
-    public_routes = {
-        ("/", "get"),
-        ("/health", "get"),
-        (f"{settings.API_V1_STR}/auth/login", "post"),
-        (f"{settings.API_V1_STR}/auth/register", "post"),
-        (f"{settings.API_V1_STR}/actividades", "get"),
-    }
-
-    for path, path_item in openapi_schema.get("paths", {}).items():
-        for method, operation in path_item.items():
-            if method.lower() not in ["get", "post", "put", "patch", "delete"]:
-                continue
-            
-            # Detalle de actividad público
-            if path.startswith(f"{settings.API_V1_STR}/actividades/") and method.lower() == "get":
-                operation["security"] = []
-                continue
-
-            if (path, method.lower()) in public_routes:
-                operation["security"] = []
-            else:
-                operation["security"] = [{"BearerAuth": []}]
-
-    app.openapi_schema = openapi_schema
-    return app.openapi_schema
-
-app.openapi = custom_openapi
+# La seguridad de los endpoints ahora es manejada nativamente por FastAPI y Depends(security)
 
 @app.get("/")
 async def root():
